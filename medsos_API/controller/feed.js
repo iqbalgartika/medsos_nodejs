@@ -3,6 +3,7 @@ const path = require('path');
 
 const { validationResult } = require('express-validator');
 
+const io = require('../socket');
 const Post = require('../models/post');
 const User = require('../models/user');
 
@@ -12,7 +13,11 @@ exports.getPosts = async (req, res, next) => {
 
     try {
         const totalItems = await Post.find().countDocuments();
-        const posts = await Post.find().populate('creator').skip((currentPage - 1) * perPage).limit(perPage);
+        const posts = await Post.find()
+            .populate('creator')
+            .sort({ createdAt: -1 })
+            .skip((currentPage - 1) * perPage)
+            .limit(perPage);
         return res.status(200).json({ posts: posts, totalItems: totalItems });
     } catch (error) {
         if (!error.statusCode) {
@@ -38,7 +43,7 @@ exports.getPost = async (req, res, next) => {
         }
         next(error);
     }
-    
+
 }
 
 exports.createPost = async (req, res, next) => {
@@ -69,6 +74,10 @@ exports.createPost = async (req, res, next) => {
         const user = await User.findById(req.userId);
         user.posts.push(post);
         await user.save();
+        io.getIO().emit('posts', {
+            action: 'create',
+            post: { ...post._doc, creator: { _id: req.userId, name: user.name } }
+        });
         res.status(201).json({
             message: 'Post created successfully',
             post: post
@@ -103,13 +112,13 @@ exports.updatePost = async (req, res, next) => {
     const title = req.body.title;
     const content = req.body.content;
     try {
-        const post = await Post.findById(postId);
+        const post = await Post.findById(postId).populate('creator');
         if (!post) {
             const error = new Error('Could not find the post.');
             error.statusCode = 404;
             throw (error);
         }
-        if (req.userId.toString() !== post.creator.toString()) {
+        if (req.userId.toString() !== post.creator._id.toString()) {
             const error = new Error('Not authorized!');
             error.statusCode = 403;
             throw (error);
@@ -122,6 +131,7 @@ exports.updatePost = async (req, res, next) => {
         post.content = content;
         post.imageUrl = imageUrl;
         const result = await post.save();
+        io.getIO().emit('posts', { action: 'update', post: result });
         return res.status(200).json({ post: result });
 
     } catch (error) {
@@ -154,6 +164,7 @@ exports.deletePost = async (req, res, next) => {
         user.posts.pull(postId);
 
         await user.save();
+        io.getIO().emit('posts', { action: 'delete', post: postId });
         return res.status(200).json({ message: 'Post is deleted.' });
     } catch (error) {
         if (!error.statusCode) {
