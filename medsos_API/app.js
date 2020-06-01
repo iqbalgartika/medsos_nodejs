@@ -7,6 +7,7 @@ const multer = require('multer');
 
 const CONST = require('./util/const');
 const feedRoutes = require('./routes/feed');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 
@@ -39,12 +40,14 @@ app.use((req, res, next) => {
 });
 
 app.use('/feed', feedRoutes);
+app.use('/auth', authRoutes);
 
 app.use((error, req, res, next) => {
     console.log(error);
     const status = error.statusCode || 500;
+    const data = error.data;
     const message = error.message;
-    return res.status(status).json({ message: message });
+    return res.status(status).json({ message: message, data: data });
 })
 
 mongoose.connect(CONST.MONGO_URL)
