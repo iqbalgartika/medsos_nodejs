@@ -80,7 +80,7 @@ class App extends Component {
         return res.json();
       })
       .then(resData => {
-        if (resData.errors && resData.errors[0].status === 422){
+        if (resData.errors && resData.errors[0].code === 422){
           throw new Error(
             "Validation failed. Make sure the email address isn't used yet!"
           );
@@ -139,7 +139,7 @@ class App extends Component {
         return res.json();
       })
       .then(resData => {
-        if (resData.errors && resData.errors[0].status === 422){
+        if (resData.errors && resData.errors[0].code === 422){
           throw new Error(
             "Validation failed. Make sure the email address isn't used yet!"
           );

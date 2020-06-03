@@ -9,6 +9,7 @@ const graphqlHttp = require('express-graphql');
 const CONST = require('./util/const');
 const graphqlSchema = require('./graphql/schema');
 const graphqlResolver = require('./graphql/resolvers');
+const auth = require('./middleware/auth');
 
 const app = express();
 
@@ -32,7 +33,6 @@ app.use(bodyParser.json());
 app.use(multer({storage: fileStorage, fileFilter: fileFilter}).single('image'));
 app.use('/images', express.static(path.join(__dirname, 'images')));
 
-
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, POST, PUT, PATCH, DELETE');
@@ -43,11 +43,13 @@ app.use((req, res, next) => {
     next();
 });
 
+app.use(auth);
+
 app.use('/graphql', graphqlHttp({
     schema: graphqlSchema,
     rootValue: graphqlResolver,
     graphiql: true,
-    formatError: error => {
+    customFormatErrorFn: error => {
         if (!error.originalError) {
             return error;
         }
