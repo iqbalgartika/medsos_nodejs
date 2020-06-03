@@ -10,6 +10,7 @@ const CONST = require('./util/const');
 const graphqlSchema = require('./graphql/schema');
 const graphqlResolver = require('./graphql/resolvers');
 const auth = require('./middleware/auth');
+const { clearImage } = require('./util/file');
 
 const app = express();
 
@@ -30,7 +31,7 @@ const fileFilter = (req, file, cb) => {
 }
 
 app.use(bodyParser.json());
-app.use(multer({storage: fileStorage, fileFilter: fileFilter}).single('image'));
+app.use(multer({ storage: fileStorage, fileFilter: fileFilter }).single('image'));
 app.use('/images', express.static(path.join(__dirname, 'images')));
 
 app.use((req, res, next) => {
@@ -45,6 +46,23 @@ app.use((req, res, next) => {
 
 app.use(auth);
 
+app.use('/post-image', (req, res, next) => {
+    if (!req.isAuth) {
+        const error = new Error('Not authenticated!');
+        error.code = 401;
+        throw error;
+    }
+
+    if (!req.file) {
+        return res.status(200).json({ message: 'No image provided.' });
+    }
+    
+    if (req.body.oldPath) {
+        clearImage(req.body.oldPath);
+    }
+    return res.status(201).json({ message: 'Image is stored.', imageUrl: req.file.path.replace("\\", "/") });
+});
+
 app.use('/graphql', graphqlHttp({
     schema: graphqlSchema,
     rootValue: graphqlResolver,
@@ -56,7 +74,7 @@ app.use('/graphql', graphqlHttp({
         const message = error.message;
         const code = error.originalError.code;
         const data = error.originalError.data;
-        return {message: message, code: code, data};
+        return { message: message, code: code, data };
     }
 }));
 

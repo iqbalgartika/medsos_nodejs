@@ -22,19 +22,29 @@ class Feed extends Component {
   };
 
   componentDidMount() {
-    fetch('http://localhost:8080/auth/status', {
+    const graphqlQuery = {
+      query: `
+        {
+          user {status}
+        }
+      `
+    }
+    fetch('http://localhost:8080/graphql', {
+      method: 'POST',
       headers: {
-        Authorization: 'Bearer ' + this.props.token
-      }
+        Authorization: 'Bearer ' + this.props.token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(graphqlQuery)
     })
       .then(res => {
-        if (res.status !== 200) {
-          throw new Error('Failed to fetch user status.');
-        }
         return res.json();
       })
       .then(resData => {
-        this.setState({ status: resData.status });
+        if (resData.errors) {
+          throw new Error('Failed to fetch user status.');
+        }
+        this.setState({ status: resData.data.user.status });
       })
       .catch(this.catchError);
 
@@ -58,7 +68,7 @@ class Feed extends Component {
       query: `
         {
           posts(page: ${page}) {
-            posts { _id title content createdAt creator { name }}
+            posts { _id title content createdAt creator { name } imageUrl }
             totalPosts
           }
         }
@@ -76,7 +86,6 @@ class Feed extends Component {
         return res.json();
       })
       .then(resData => {
-        console.log(resData)
         if (resData.errors) {
           throw new Error('Failed to fetch posts.');
         }
@@ -96,23 +105,30 @@ class Feed extends Component {
 
   statusUpdateHandler = event => {
     event.preventDefault();
-    fetch('http://localhost:8080/auth/status', {
-      method: 'PATCH',
+    const graphqlQuery = {
+      query: `
+        mutation {
+          updateStatus(status: "${this.state.status}")  {
+            status
+          }
+        }
+      `
+    }
+    fetch('http://localhost:8080/graphql', {
+      method: 'POST',
       headers: {
         Authorization: 'Bearer ' + this.props.token,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        status: this.state.status
-      })
+      body: JSON.stringify(graphqlQuery)
     })
       .then(res => {
-        if (res.status !== 200 && res.status !== 201) {
-          throw new Error("Can't update status!");
-        }
         return res.json();
       })
       .then(resData => {
+        if (resData.errors) {
+          throw new Error("Can't update status!");
+        }
         console.log(resData);
       })
       .catch(this.catchError);
@@ -142,35 +158,65 @@ class Feed extends Component {
       editLoading: true
     });
     const formData = new FormData();
-    formData.append('title', postData.title);
-    formData.append('content', postData.content);
     formData.append('image', postData.image);
 
-    let graphqlQuery = {
-      query: `
-      mutation {
-        createPost(postInput: {
-          title: "${postData.title}", 
-          content:"${postData.content}", 
-          imageUrl: "some url"
-        }) 
-          { _id title content creator{name} createdAt }
-      }`
-    }
-    fetch('http://localhost:8080/graphql', {
+    fetch('http://localhost:8080/post-image', {
       method: 'POST',
-      body: JSON.stringify(graphqlQuery),
+      body: formData,
       headers: {
-        Authorization: 'Bearer ' + this.props.token,
-        'Content-Type': 'application/json'
+        Authorization: 'Bearer ' + this.props.token
       }
     })
       .then(res => {
         return res.json();
       })
+      .then(fileResData => {
+        const imageUrl = fileResData.imageUrl;
+        let graphqlQuery = {
+          query: `
+            mutation {
+              createPost(postInput: {
+                title: "${postData.title}", 
+                content: "${postData.content}", 
+                imageUrl: "${imageUrl}"
+              }) 
+                { _id title content creator{name} createdAt imageUrl }
+            }
+          `
+        }
+        if (this.state.editPost) {
+          graphqlQuery = {
+            query: `
+              mutation {
+                updatePost(
+                  id: "${this.state.editPost._id}",
+                  postInput: {
+                    title: "${postData.title}", 
+                    content: "${postData.content}", 
+                    imageUrl: "${imageUrl}"
+                  }
+                ) 
+                  { _id title content creator{name} createdAt imageUrl }
+              }
+            `
+          }
+        }
+
+        return fetch('http://localhost:8080/graphql', {
+          method: 'POST',
+          body: JSON.stringify(graphqlQuery),
+          headers: {
+            Authorization: 'Bearer ' + this.props.token,
+            'Content-Type': 'application/json'
+          }
+        })
+      })
+      .then(res => {
+        return res.json();
+      })
       .then(resData => {
         console.log(resData);
-        if (resData.errors && resData.errors[0].code === 422){
+        if (resData.errors && resData.errors[0].code === 422) {
           throw new Error(
             "Validation failed. Make sure the email address isn't used yet!"
           );
@@ -178,12 +224,18 @@ class Feed extends Component {
         if (resData.errors) {
           throw new Error('Post creation failed!');
         }
+
+        let resDataField = 'createPost';
+        if (this.state.editPost) {
+          resDataField = 'updatePost';
+        }
         const post = {
-          _id: resData.data.createPost._id,
-          title: resData.data.createPost.title,
-          content: resData.data.createPost.content,
-          creator: resData.data.createPost.creator,
-          createdAt: resData.data.createPost.createdAt
+          _id: resData.data[resDataField]._id,
+          title: resData.data[resDataField].title,
+          content: resData.data[resDataField].content,
+          creator: resData.data[resDataField].creator,
+          createdAt: resData.data[resDataField].createdAt,
+          imageUrl: resData.data[resDataField].imageUrl
         };
         this.setState(prevState => {
           let updatedPosts = [...prevState.posts];
@@ -193,7 +245,9 @@ class Feed extends Component {
             );
             updatedPosts[postIndex] = post;
           } else {
-            updatedPosts.pop();
+            if (prevState.posts.length >= 2) {
+              updatedPosts.pop();
+            }
             updatedPosts.unshift(post);
           }
           return {
@@ -203,7 +257,7 @@ class Feed extends Component {
             editLoading: false
           };
         });
-        
+
       })
       .catch(err => {
         console.log(err);
@@ -222,19 +276,28 @@ class Feed extends Component {
 
   deletePostHandler = postId => {
     this.setState({ postsLoading: true });
-    fetch('http://localhost:8080/feed/post/' + postId, {
-      method: 'DELETE',
+    const graphqlQuery = {
+      query: `
+        mutation {
+          deletePost(id: "${postId}")
+        }
+      `
+    };
+    fetch('http://localhost:8080/graphql', {
+      method: 'POST',
       headers: {
-        Authorization: 'Bearer ' + this.props.token
-      }
+        Authorization: 'Bearer ' + this.props.token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(graphqlQuery)
     })
       .then(res => {
-        if (res.status !== 200 && res.status !== 201) {
-          throw new Error('Deleting a post failed!');
-        }
         return res.json();
       })
       .then(resData => {
+        if (resData.errors) {
+          throw new Error('Deleting a post failed!');
+        }
         console.log(resData);
         this.loadPosts();
         // this.setState(prevState => {
