@@ -65,6 +65,7 @@ exports.login = async (req, res, next) => {
             error.statusCode = 500;
         }
         next(error);
+        return error;
     }
 }
 
